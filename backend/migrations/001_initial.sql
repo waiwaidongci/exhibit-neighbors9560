@@ -1,0 +1,3 @@
+-- SQLAlchemy metadata initializes tables idempotently.
+-- Domain tables: exhibitions, visitor_ratings, recommendation_runs, curator_selections.
+-- Unique natural keys: source.key; (record.source_id, record.reference).

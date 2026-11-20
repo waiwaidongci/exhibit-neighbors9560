@@ -1,0 +1,98 @@
+export const domain = {
+  "id": "gb-0045",
+  "direction": "推荐建模",
+  "title": "苇谱展陈偏好配对册",
+  "slug": "exhibit-neighbors",
+  "algorithm": "neighbors",
+  "entities": "Exhibition / VisitorRating / RecommendationRun / CuratorSelection",
+  "scenario": "匿名试展显式评分→邻居推荐与冷启动说明→策展备选；仅使用训练评分，相似度共同评分阈值",
+  "visual": "展陈索引、深梅与砂色",
+  "oracle": "手算相似邻居预测；单评分冷启动回退；留出评分不可参与训练",
+  "frontend": 18249,
+  "backend": 19249,
+  "db_port": 17749,
+  "database": "MySQL8",
+  "batch": 1,
+  "code": "WP",
+  "source": "试展评分册",
+  "record": "访客评分",
+  "note": "策展备选",
+  "source_table": "exhibitions",
+  "record_table": "visitor_ratings",
+  "run_table": "recommendation_runs",
+  "note_table": "curator_selections",
+  "eyebrow": "CURATOR INDEX / 45",
+  "headline": "从相似的偏好，发现下一件展品。",
+  "subtitle": "苇谱展陈工作室 · 显式评分邻居推荐与冷启动",
+  "fields": [
+    [
+      "visitor",
+      "匿名访客",
+      "text"
+    ],
+    [
+      "exhibit",
+      "展品代号",
+      "text"
+    ],
+    [
+      "rating",
+      "评分 1–5",
+      "number"
+    ]
+  ],
+  "params": [
+    [
+      "neighbors",
+      "相似邻居上限",
+      5
+    ],
+    [
+      "min_common",
+      "共同评分下限",
+      2
+    ]
+  ],
+  "sample": {
+    "visitor": "V-NEW",
+    "exhibit": "E01",
+    "rating": 4
+  },
+  "seed_count": 240,
+  "ink": "oklch(29% .06 340)",
+  "accent": "oklch(50% .12 350)",
+  "paper": "oklch(94% .03 80)",
+  "principle": "访客均值中心化的余弦相似度，仅使用正相似邻居；每位访客留一评分验证，留出评分不进入训练。无邻居时回退展品均值。",
+  "default_parameters": {
+    "neighbors": 5,
+    "min_common": 2
+  },
+  "method_label": "用户均值中心化相似邻居协同过滤与留一评分RMSE",
+  "result_headline": "相似偏好之后，留下推荐依据。",
+  "column_labels": {
+    "reference": "样本编号",
+    "actual": "实际类型",
+    "predicted": "预测类型",
+    "posterior": "最高类后验",
+    "cluster": "分区编号",
+    "kind": "微站类型",
+    "temperature": "温度 ℃",
+    "humidity": "湿度 %",
+    "particles": "颗粒浓度",
+    "from": "当前章节",
+    "to": "下一章节",
+    "count": "接续次数",
+    "conditional_probability": "条件概率",
+    "target_base_rate": "目标章节基率",
+    "lift": "提升度",
+    "support": "边支持度",
+    "actual_minutes": "实测时长 min",
+    "predicted_minutes": "预测时长 min",
+    "error_minutes": "预测误差 min",
+    "visitor": "匿名访客",
+    "exhibit": "展品编号",
+    "prediction": "预计评分",
+    "method": "计算依据",
+    "neighbor_count": "参与邻居数"
+  }
+};
