@@ -1,4 +1,4 @@
-import json,random,logging
+import hashlib,json,random,logging
 from sqlalchemy import select,func
 from src.config.database import Base,engine,Session
 from src.config.settings import CONFIG
@@ -6,11 +6,13 @@ from src.models.user import User
 from src.models.source import Source
 from src.models.record import Record
 from src.models.run import Run
+from src.models.ranking import Ranking
 from src.models import note,audit
 from src.utils.security import hash_password
 from src.utils.serialization import now
 from src.services.runs import queue
 from src.services.domain_validation import validate_record
+from src.services.ranking_algorithm import normalize_ratings,pair_votes_from
 
 def seed_values(kind,index,batch,rng):
     if kind=='gaussian':
@@ -32,6 +34,20 @@ def seed_values(kind,index,batch,rng):
 
 def counts(db):
     return {cls.__tablename__:db.scalar(select(func.count()).select_from(cls)) for cls in (User,Source,Record,Run)}
+def seed_ranking(db,source,records,queued):
+    """Queue one demo ranking study over every exhibit in the first source."""
+    selected=sorted({r['values']['exhibit'] for r in records})[:16]
+    if len(selected)<2 or db.scalar(select(Ranking.id).where(Ranking.name=='首轮种子排位')):
+        return
+    chosen=set(selected)
+    ratings=[{'visitor':r['values']['visitor'],'exhibit':r['values']['exhibit'],'rating':float(r['values']['rating'])} for r in records if r['values']['exhibit'] in chosen]
+    normalized=normalize_ratings(ratings)
+    pair_votes=pair_votes_from(normalized)
+    if not pair_votes:
+        return
+    snapshot={'source':{'id':source.id,'name':source.name,'filename':source.filename},'selected':selected,'ratings':normalized,'sealed_at':now(),'checksum':hashlib.sha256(json.dumps(normalized,sort_keys=True,ensure_ascii=False).encode()).hexdigest(),'seal_rule':'同一访客同一展品以最后录入的评分记录为准；并发补评不改变本次封存票数'}
+    study=Ranking(source_id=source.id,request_key='seed-ranking-'+source.key,name='首轮种子排位',state='queued',progress=10,stage='已受理，等待 worker',selected=selected,snapshot=snapshot,frozen_votes=[[w,l,c] for (w,l),c in sorted(pair_votes.items())],created_by='admin@'+CONFIG['slug']+'.demo',created_at=now())
+    db.add(study);db.flush();queued.append(('ranking:queue',study.id))
 def seed():
     Base.metadata.create_all(engine);rng=random.Random(42);queued=[]
     with Session() as db:
@@ -51,9 +67,10 @@ def seed():
             db.flush()
             if batch==0 and not db.scalar(select(Run.id).where(Run.name=='首轮种子研究')):
                 records=[{'id':r.id,'source_id':r.source_id,'reference':r.reference,'values':r.values} for r in db.scalars(select(Record).where(Record.source_id==source.id).order_by(Record.id))]
-                run=Run(source_id=source.id,name='首轮种子研究',state='queued',parameters=CONFIG['default_parameters'],snapshot={'source':{'id':source.id,'name':source.name,'filename':source.filename},'records':records},created_at=now());db.add(run);db.flush();queued.append(run.id)
+                run=Run(source_id=source.id,name='首轮种子研究',state='queued',parameters=CONFIG['default_parameters'],snapshot={'source':{'id':source.id,'name':source.name,'filename':source.filename},'records':records},created_at=now());db.add(run);db.flush();queued.append(('analysis:queue',run.id))
+                seed_ranking(db,source,records,queued)
         db.commit();print(json.dumps(counts(db),ensure_ascii=False))
-    for id in queued:
-        try:queue.rpush('analysis:queue',id)
+    for channel,id in queued:
+        try:queue.rpush(channel,id)
         except Exception:logging.exception('seed queue unavailable')
 if __name__=='__main__':seed()

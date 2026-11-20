@@ -12,8 +12,9 @@
 2. 试展评分册：创建/修改来源说明、查看样本、用真实业务字段追加记录；列表分页。
 3. 分析配置：冻结来源、参数和全部样本，进入Redis队列。
 4. 完整结果：真实算法摘要、专属诊断、全部CSV导出和可恢复失败态。
-5. 策展备选：分析师草案→负责人批准→阅读者下载批准快照。
-6. 审计：登录、来源修改、任务worker完成、业务说明批准等事件。
+5. 排位次序：选至多十六件展品，按两两投票求最少违背票数的完整次序，标出未定先后并给出两种同样最优的排法。
+6. 策展备选：分析师草案→负责人批准→阅读者下载批准快照。
+7. 审计：登录、来源修改、任务worker完成、排位研究、业务说明批准等事件。
 
 ## 快速启动
 
@@ -53,9 +54,9 @@ JWT有效期8小时；PBKDF2盐化哈希保存密码；角色每请求从数据�
 
 ## 实体与字段
 
-Exhibition / VisitorRating / RecommendationRun / CuratorSelection 是核心实体；另有User和Audit。数据库实际表：`exhibitions` → `visitor_ratings` → `recommendation_runs` → `curator_selections`。样本以固定字段JSON保存，后端按以下字段严格验证，不接受未知字段替代必填值：匿名访客（`visitor`）、展品代号（`exhibit`）、评分 1–5（`rating`）。
+Exhibition / VisitorRating / RecommendationRun / CuratorSelection / ExhibitRanking 是核心实体；另有User和Audit。数据库实际表：`exhibitions` → `visitor_ratings` → `recommendation_runs` → `curator_selections`，以及排位研究表 `exhibit_rankings`（记录封存选品、逐访客评分、两两封存票数、进度与结果）。样本以固定字段JSON保存，后端按以下字段严格验证，不接受未知字段替代必填值：匿名访客（`visitor`）、展品代号（`exhibit`）、评分 1–5（`rating`）。
 
-实体贯穿 `backend/src/models`、`schemas`、`services`、`controllers`、`routes`，以及 `frontend/src/api/research.js`、`stores/research.js` 和 `pages`。`Source.key` 与 `(Record.source_id, reference)` 为自然键；来源改名不会修改已冻结任务输入。业务说明在创建时保存结果快照，批准后从该快照导出。
+实体贯穿 `backend/src/models`、`schemas`、`services`、`controllers`、`routes`，以及 `frontend/src/api/research.js`、`stores/research.js` 和 `pages`。`Source.key` 与 `(Record.source_id, reference)` 为自然键；排位研究另以 `request_key` 为自然键。来源改名不会修改已冻结任务输入。业务说明与排位结果都在受理/创建时保存快照，之后补录不影响已封存结果。
 
 ## 算法与口径
 
@@ -70,6 +71,16 @@ Exhibition / VisitorRating / RecommendationRun / CuratorSelection 是核心实�
 
 已知边界：显式1–5评分，不是隐式行为推荐；按展品代码确定性留一，不能当作时间外推验证。相似度只取正值，至少两个共同评分；回退会显示依据。生产建议在完成评估后用全量已知评分，不将训练评分误报验证。
 
+## 展品排位口径
+
+排位研究位于 `backend/src/services/ranking_algorithm.py`，只用标准库，由独立 worker 消费 `ranking:queue`。每位访客对共评且星级不同的两件展品投一票，高星展品应在前；同星与缺评不投票，选品之外的评分不进入研究。选品最多十六件。
+
+- 最少违背票数的完整次序用**子集动态规划**在 `2^n` 个状态上求得（`n≤16`），不逐一枚举 `n!` 个排列；切分前后缀复核与 worker 内的实际计票都会再验一遍。
+- 若某展品对的两种先后都能达到同样的最少违背票数，该对标为**未定**，页面给出两种同样最优的完整排法供逐对核对；两种排法只在未定对上相反。
+- 受理时封存选来源、选品与逐访客评分；同一访客同一展品以最后录入的评分记录为准，之后并发补评不改变本次票数（快照含输入 SHA256）。
+- 同一排位请求重试沿用同一研究记录与同一封存，不新增报告；同一 `request_key` 重复提交返回原研究。失败态可“用同一封存重试”。
+- 计算完成前页面只显示进度，不展示不完整结果；完成后显示违背票数、未定对与复核结果，并可导出 CSV。
+
 ## 演示数据与一天剧本
 
 固定seed=42，3个来源 ` WP-202611-01/02/03`，每来源240条，共720条业务记录；三个账号和首轮种子任务。自然键检查后仅插入缺失数据，连跑seed不重复、不覆盖用户修改。`SEED_DEMO=true` 时启动自动执行；失败记录日志但不阻塞服务。首轮任务同样由独立worker真实计算。
@@ -80,8 +91,9 @@ Exhibition / VisitorRating / RecommendationRun / CuratorSelection 是核心实�
 4. 09:20 新建“十一月复核研究”，按默认参数冻结241条输入。
 5. 09:21 独立worker消费Redis队列，返回实算结果与输入校验和。
 6. 09:25 分析师查看专属诊断及逐行结果，并下载CSV复算。
-7. 09:30 提交“十一月业务复核意见”，负责人核对并批准。
-8. 09:40 viewer下载批准快照，查看审计中的worker完成与批准事件。
+7. 09:28 在“排位次序”选同一来源的十二件展品发起排位研究；worker 返回最少违背票数、未定对与两种同样最优排法。
+8. 09:30 提交“十一月业务复核意见”，负责人核对并批准。
+9. 09:40 viewer下载批准快照与排位CSV，查看审计中的worker完成与批准事件。
 
 ## 目录与本地开发
 

@@ -16,3 +16,16 @@ def note_csv(db,id):
     if not n:raise HTTPException(404,'未找到说明')
     if n.state!='approved':raise HTTPException(403,'仅批准后的业务说明可导出')
     return csv_response(n.frozen_result,'approved-'+str(id)+'.csv')
+def ranking_csv(result,filename):
+    buf=io.StringIO();w=csv.writer(buf)
+    w.writerow(['排位','展品代号','违背票数','总票数','未定对数'])
+    for rank_index,code in enumerate(result['order'],1):
+        w.writerow([rank_index,code,result['violations'],result['total_votes'],result['ambiguous_count']])
+    buf.write('\n')
+    w.writerow(['未定对','展品甲','展品乙'])
+    for a,b in result['ambiguous_pairs']:w.writerow(['未定',a,b])
+    buf.write('\n')
+    for example in result['examples']:
+        w.writerow(['同样最优次序','违背票数',example['violations']])
+        w.writerow(['次序']+example['order'])
+    return Response('﻿'+buf.getvalue(),media_type='text/csv; charset=utf-8',headers={'Content-Disposition':'attachment; filename="'+filename+'"'})
